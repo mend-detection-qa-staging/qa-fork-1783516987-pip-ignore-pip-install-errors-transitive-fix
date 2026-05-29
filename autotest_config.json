@@ -1,46 +1,36 @@
 {
-  "description": "Regression test for SCA-5589: pip ignorePipInstallErrors=true fallback must report transitive dependencies as transitive (NOT as direct). When pip install -r requirements.txt fails and the per-line download fallback fires, only packages explicitly listed in requirements.txt should be direct dependencies. neo4j-graphrag==1.6.0 is the sole direct dep; pypdf, pydantic, fsspec, neo4j, numpy and others are transitive children.",
+  "description": "Regression test for SCA-5589: pip ignorePipInstallErrors=true fallback must NOT report transitive dependencies as direct. The fix adds --no-deps to the per-line 'pip download', so when 'pip install -r requirements.txt' fails and the fallback fires, each requirements.txt entry is downloaded WITHOUT its transitive closure. Only neo4j-graphrag==1.6.0 (the sole resolvable entry) is reported; its transitives (pypdf, pydantic, etc.) are not downloaded by this path at all. Pre-fix the per-package download pulled the full closure and the flat collector reported all ~13 as direct. Discriminating assertion: expected_direct_dependencies_number == 1 (pre-fix was 13).",
   "version": 1.8,
   "base_config": {
     "validate_scan_output": true,
     "scan_output": {
       "total_libs_scanned": {
-        "gte": 1
+        "eq": 1
       },
-      "_comment_total_libs_scanned": "At least the direct dep must be scanned. Pre-fix: ~13 were reported as direct."
+      "_comment_total_libs_scanned": "Post-fix exactly 1 library (neo4j-graphrag) is scanned. Pre-fix: ~13 (the misclassified closure)."
     },
     "validate_dependency_tree": true,
     "dependency_tree": {
       "check_dependency_tree_detection_status": true,
       "check_update_request_sca_results": false,
       "expected_total_dependencies_number": {
-        "gte": 6
+        "eq": 1
       },
-      "_comment_expected_total_dependencies_number": "neo4j-graphrag 1.6.0 has ~12 transitives. Total should be well above 1. gte:6 covers the 1 direct + 5 named transitives (pypdf, pydantic, fsspec, neo4j, numpy). If total==1 the scanner only found the direct dep (acceptable but conservative). If total==0 that is a PRODUCT_BUG.",
+      "_comment_expected_total_dependencies_number": "Post-fix total is 1: only neo4j-graphrag is downloaded (--no-deps prevents fetching its transitives in this fallback path). Pre-fix total was ~13.",
       "expected_direct_dependencies_number": {
         "eq": 1
       },
-      "_comment_expected_direct_dependencies_number": "CRITICAL assertion for SCA-5589 fix validation. MUST be exactly 1 (neo4j-graphrag only). Pre-fix value was 13 (all deps misclassified as direct). If this check fails with actual==13, the bug is still present.",
+      "_comment_expected_direct_dependencies_number": "CRITICAL / discriminating assertion for SCA-5589. MUST be exactly 1 (neo4j-graphrag only). Pre-fix: 13 (whole closure misclassified as direct). actual==13 means the bug is present or the fix is not deployed to this environment.",
       "expected_transitive_dependencies_number": {
-        "gte": 5
+        "eq": 0
       },
-      "_comment_expected_transitive_dependencies_number": "neo4j-graphrag 1.6.0 declares pypdf, pydantic, fsspec, neo4j, numpy and others. Pre-fix: 0 transitives (all were at top level). Post-fix: at least 5 transitives must appear (pypdf, pydantic, fsspec, neo4j, numpy).",
+      "_comment_expected_transitive_dependencies_number": "Post-fix: 0 transitives. --no-deps means pip does NOT download neo4j-graphrag's transitives in the ignorePipInstallErrors fallback, so nothing is nested under it (children: []). This is the intended trade-off of the fix (fewer deps in the degraded path, but correctly classified). NOTE: pre-fix was also 0 transitives (everything was a flat top-level direct), so this check alone does not distinguish fixed-from-broken; expected_direct_dependencies_number is the discriminating assertion.",
       "direct_dependencies_names_list": {
         "eq": [
           "neo4j_graphrag-1.6.0-py3-none-any.whl"
         ]
       },
-      "_comment_direct_dependencies_names_list": "STRICT name check: only neo4j-graphrag must be direct. 'eq' operator ensures NO other package is at the top level. pip artifact format uses underscores and .whl suffix. If pypdf or pydantic appear here, the fix is not working.",
-      "transitive_dependencies_names_list": {
-        "contains": [
-          "pypdf",
-          "pydantic",
-          "fsspec",
-          "neo4j",
-          "numpy"
-        ]
-      },
-      "_comment_transitive_dependencies_names_list": "CRITICAL: these packages were incorrectly reported as DIRECT pre-fix. Post-fix they must be in the transitive list. Uses 'contains' (substring match) to handle pip's .whl filename format (e.g. pypdf-5.9.0-py3-none-any.whl). numpy added per expected-tree.json.",
+      "_comment_direct_dependencies_names_list": "STRICT name check: only neo4j-graphrag must be direct. 'eq' ensures NO other package (e.g. pypdf, pydantic) is at the top level. If any transitive appears here, the per-package download is still pulling the closure (bug present).",
       "expected_package_managers": {
         "contains": [
           "PIP"
@@ -65,12 +55,12 @@
         {
           "operator": "eq",
           "value": "python.ignorePipInstallErrors=true",
-          "_comment": "Confirm the ignorePipInstallErrors flag is active \u2014 this is the trigger condition for the bug scenario."
+          "_comment": "Confirm the ignorePipInstallErrors flag is active - the trigger condition for the bug scenario."
         },
         {
           "operator": "eq",
           "value": "pip install command failed",
-          "_comment": "Confirm pip install actually failed (bogus package triggered the failure). If this line is absent, the fallback path was NOT triggered and the test is not validating the right scenario."
+          "_comment": "Confirm pip install actually failed (bogus package triggered the failure). If absent, the fallback path was NOT triggered and the test is not validating the right scenario."
         }
       ]
     },
